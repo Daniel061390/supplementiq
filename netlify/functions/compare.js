@@ -95,8 +95,8 @@ exports.handler = async (event) => {
   content.push({ type: 'text', text: '\n\nNow analyze these two estimates and return the JSON object as instructed.' });
 
   const payload = {
-    model: 'claude-opus-4-6',
-    max_tokens: 8192,
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content }]
   };
