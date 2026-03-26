@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Collision Estimate Reconciliation</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: white;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    }
+    header .logo {
+      width: 40px; height: 40px;
+      background: #e94560;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+    header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+    header p  { font-size: 13px; color: #8892b0; margin-top: 2px; }
+
+    /* ── Main layout ── */
+    main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 60px; }
+
+    /* ── Upload grid ── */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } }
+
+    .estimate-panel {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 14px 18px;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-header.shop    { background: #e8f4fd; color: #1565c0; border-bottom: 2px solid #1565c0; }
+    .panel-header.insurer { background: #fff3e0; color: #e65100; border-bottom: 2px solid #e65100; }
+    .panel-header .badge {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: white;
+    }
+    .panel-header.shop    .badge { background: #1565c0; }
+    .panel-header.insurer .badge { background: #e65100; }
+
+    .panel-body { padding: 16px; }
+
+    .drop-zone {
+      border: 2px dashed #d0d7de;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #fafbfc;
+      margin-bottom: 12px;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #1565c0;
+      background: #e8f4fd;
+    }
+    .drop-zone .icon { font-size: 28px; margin-bottom: 6px; }
+    .drop-zone p  { font-size: 13px; color: #57606a; }
+    .drop-zone small { font-size: 11px; color: #8c959f; }
+    .drop-zone input[type="file"] { display: none; }
+
+    .file-indicator {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: #e8f4fd;
+      border: 1px solid #1565c0;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #1565c0;
+      margin-bottom: 10px;
+    }
+    .file-indicator.visible { display: flex; }
+    .file-indicator .remove-file {
+      margin-left: auto;
+      cursor: pointer;
+      color: #e94560;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      color: #8c959f;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #d0d7de;
+    }
+
+    textarea {
+      width: 100%;
+      height: 160px;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-family: 'Courier New', monospace;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+      line-height: 1.5;
+    }
+    textarea:focus { border-color: #1565c0; box-shadow: 0 0 0 3px rgba(21,101,192,0.1); }
+    textarea::placeholder { color: #8c959f; font-style: italic; }
+
+    /* ── Action bar ── */
+    .action-bar {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    .btn-compare {
+      background: linear-gradient(135deg, #e94560, #c0392b);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 40px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 15px rgba(233,69,96,0.35);
+      letter-spacing: 0.3px;
+    }
+    .btn-compare:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(233,69,96,0.45); }
+    .btn-compare:active { transform: translateY(0); }
+    .btn-compare:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    .btn-clear {
+      background: white;
+      color: #57606a;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      padding: 14px 24px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-clear:hover { background: #f6f8fa; }
+
+    /* ── Spinner ── */
+    .spinner-wrap {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 48px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      margin-bottom: 28px;
+    }
+    .spinner-wrap.visible { display: flex; }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid #e8f4fd;
+      border-top-color: #1565c0;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner-wrap p { color: #57606a; font-size: 14px; }
+
+    /* ── Error box ── */
+    .error-box {
+      display: none;
+      background: #fff5f5;
+      border: 1px solid #fc8181;
+      border-radius: 10px;
+      padding: 16px 20px;
+      color: #c53030;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .error-box.visible { display: block; }
+
+    /* ── Results ── */
+    #results { display: none; }
+    #results.visible { display: block; }
+
+    /* Claim header */
+    .claim-header {
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      color: white;
+      border-radius: 12px;
+      padding: 24px 28px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: flex-start;
+    }
+    .claim-title { flex: 1; min-width: 200px; }
+    .claim-title h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .claim-title p  { font-size: 13px; color: #8892b0; }
+
+    .claim-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .claim-chip {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .claim-chip .label { color: #8892b0; display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .claim-chip .value { color: white; font-weight: 600; margin-top: 2px; }
+
+    /* Summary cards */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 600px) { .summary-grid { grid-template-columns: 1fr; } }
+
+    .summary-card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px 22px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      border-top: 4px solid transparent;
+    }
+    .summary-card.shop    { border-color: #1565c0; }
+    .summary-card.insurer { border-color: #e65100; }
+    .summary-card.gap     { border-color: #e94560; }
+
+    .summary-card .label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #8c959f;
+      margin-bottom: 8px;
+    }
+    .summary-card .amount {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -1px;
+    }
+    .summary-card.shop    .amount { color: #1565c0; }
+    .summary-card.insurer .amount { color: #e65100; }
+    .summary-card.gap     .amount { color: #e94560; }
+    .summary-card .sublabel { font-size: 12px; color: #8c959f; margin-top: 4px; }
+
+    /* Section cards */
+    .section-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .section-head {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .section-head .dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .section-head h3 { font-size: 15px; font-weight: 700; flex: 1; }
+    .section-head .count {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      color: white;
+    }
+    .section-head .subtotal {
+      font-size: 14px;
+      font-weight: 700;
+      margin-left: 8px;
+    }
+    .section-head .chevron { color: #8c959f; font-size: 18px; transition: transform 0.2s; }
+    .section-head.collapsed .chevron { transform: rotate(-90deg); }
+
+    .section-body { overflow: hidden; }
+    .section-body.collapsed { display: none; }
+
+    /* Section colour themes */
+    .not-paid .section-head   { background: #fff5f5; }
+    .not-paid .dot            { background: #e53e3e; }
+    .not-paid .count          { background: #e53e3e; }
+    .not-paid .subtotal       { color: #e53e3e; }
+
+    .underpaid .section-head  { background: #fffbeb; }
+    .underpaid .dot           { background: #dd6b20; }
+    .underpaid .count         { background: #dd6b20; }
+    .underpaid .subtotal      { color: #dd6b20; }
+
+    .pending .section-head    { background: #fffff0; }
+    .pending .dot             { background: #d69e2e; }
+    .pending .count           { background: #d69e2e; }
+    .pending .subtotal        { color: #d69e2e; }
+
+    .fully-paid .section-head { background: #f0fff4; }
+    .fully-paid .dot          { background: #38a169; }
+    .fully-paid .count        { background: #38a169; }
+    .fully-paid .subtotal     { color: #38a169; }
+
+    .flags-card .section-head { background: #ebf8ff; }
+    .flags-card .dot          { background: #3182ce; }
+    .flags-card .count        { background: #3182ce; }
+
+    /* Table */
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .results-table thead th {
+      background: #f6f8fa;
+      padding: 10px 16px;
+      text-align: left;
+      font-weight: 600;
+      color: #57606a;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      border-bottom: 1px solid #eaeef2;
+    }
+    .results-table tbody tr { border-bottom: 1px solid #f0f2f5; }
+    .results-table tbody tr:last-child { border-bottom: none; }
+    .results-table tbody tr:hover { background: #fafbfc; }
+    .results-table td { padding: 10px 16px; vertical-align: top; }
+    .results-table .desc { font-weight: 500; color: #1a1a2e; }
+    .results-table .notes { font-size: 12px; color: #57606a; margin-top: 3px; }
+    .results-table .money { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+    .results-table .money.red    { color: #e53e3e; }
+    .results-table .money.orange { color: #dd6b20; }
+    .results-table .money.green  { color: #38a169; }
+    .results-table .money.amber  { color: #d69e2e; }
+
+    .flag-row td { padding: 12px 20px; }
+    .flag-issue  { font-weight: 600; color: #1a1a2e; font-size: 13px; }
+    .flag-detail { font-size: 13px; color: #57606a; margin-top: 4px; line-height: 1.5; }
+
+    /* Print bar */
+    .print-bar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .btn-print {
+      background: #1a1a2e;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-print:hover { background: #16213e; }
+
+    /* ── Print styles ── */
+    @media print {
+      body { background: white; }
+      header { background: #1a1a2e !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .upload-grid, .action-bar, .print-bar { display: none !important; }
+      .claim-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .section-body.collapsed { display: block !important; }
+      .section-card { box-shadow: none; border: 1px solid #eaeef2; }
+      .section-head { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .chevron { display: none; }
+      main { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🚗</div>
+  <div>
+    <h1>Collision Estimate Reconciliation</h1>
+    <p>AI-powered line-item comparison — shop vs. insurer</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Upload Grid ── -->
+  <div class="upload-grid">
+    <!-- Estimate 1: Shop -->
+    <div class="estimate-panel">
+      <div class="panel-header shop">
+        <div class="badge">1</div>
+        Shop / Repair Facility Estimate
+      </div>
+      <div class="panel-body">
+        <div class="drop-zone" id="drop1" onclick="document.getElementById('file1').click()">
+          <div class="icon">📄</div>
+          <p><strong>Click to upload</strong> or drag &amp; drop</p>
+          <small>PDF, JPG, PNG, TXT accepted</small>
+          <input type="file" id="file1" accept=".pdf,.jpg,.jpeg,.png,.txt" />
+        </div>
+        <div class="file-indicator" id="fi1">
+          <span>📎</span>
+          <span id="fi1-name"></span>
+          <span class="remove-file" onclick="clearFile(1)">✕</span>
+        </div>
+        <div class="divider">or paste text below</div>
+        <textarea id="text1" placeholder="Paste CCC One export, PDF text, or email summary here…"></textarea>
+      </div>
+    </div>
+
+    <!-- Estimate 2: Insurer -->
+    <div class="estimate-panel">
+      <div class="panel-header insurer">
+        <div class="badge">2</div>
+        Insurance / Payout Estimate
+      </div>
+      <div class="panel-body">
+        <div class="drop-zone" id="drop2" onclick="document.getElementById('file2').click()">
+          <div class="icon">📄</div>
+          <p><strong>Click to upload</strong> or drag &amp; drop</p>
+          <small>PDF, JPG, PNG, TXT accepted</small>
+          <input type="file" id="file2" accept=".pdf,.jpg,.jpeg,.png,.txt" />
+        </div>
+        <div class="file-indicator" id="fi2">
+          <span>📎</span>
+          <span id="fi2-name"></span>
+          <span class="remove-file" onclick="clearFile(2)">✕</span>
+        </div>
+        <div class="divider">or paste text below</div>
+        <textarea id="text2" placeholder="Paste insurer payout sheet, SCA summary, or email text here…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Action Bar ── -->
+  <div class="action-bar">
+    <button class="btn-clear" onclick="clearAll()">Clear All</button>
+    <button class="btn-compare" id="btnCompare" onclick="runComparison()">
+      ⚡ Run AI Comparison
+    </button>
+  </div>
+
+  <!-- ── Loading ── -->
+  <div class="spinner-wrap" id="spinner">
+    <div class="spinner"></div>
+    <p>Analyzing estimates with AI — this takes 15–30 seconds…</p>
+  </div>
+
+  <!-- ── Error ── -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- ── Results ── -->
+  <div id="results">
+
+    <div class="print-bar">
+      <button class="btn-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+    </div>
+
+    <!-- Claim header -->
+    <div class="claim-header" id="claimHeader">
+      <div class="claim-title">
+        <h2 id="claimVehicle">—</h2>
+        <p id="claimShop">—</p>
+      </div>
+      <div class="claim-meta" id="claimMeta"></div>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="summary-grid">
+      <div class="summary-card shop">
+        <div class="label">Shop Estimate</div>
+        <div class="amount" id="shopTotal">—</div>
+        <div class="sublabel">Total billed</div>
+      </div>
+      <div class="summary-card insurer">
+        <div class="label">Insurer Approved</div>
+        <div class="amount" id="insurerTotal">—</div>
+        <div class="sublabel">Total paid</div>
+      </div>
+      <div class="summary-card gap">
+        <div class="label">Gross Gap</div>
+        <div class="amount" id="gapTotal">—</div>
+        <div class="sublabel">Potential supplement</div>
+      </div>
+    </div>
+
+    <!-- Not Paid -->
+    <div class="section-card not-paid" id="secNotPaid">
+      <div class="section-head" onclick="toggleSection('secNotPaid')">
+        <div class="dot"></div>
+        <h3>Not Paid / Not Included</h3>
+        <span class="count" id="countNotPaid">0</span>
+        <span class="subtotal" id="subNotPaid"></span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="section-body">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th style="width:55%">Line Item</th>
+              <th style="width:20%;text-align:right">Shop Amount</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="bodyNotPaid"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Underpaid -->
+    <div class="section-card underpaid" id="secUnderpaid">
+      <div class="section-head" onclick="toggleSection('secUnderpaid')">
+        <div class="dot"></div>
+        <h3>Partially Paid / Underpaid</h3>
+        <span class="count" id="countUnderpaid">0</span>
+        <span class="subtotal" id="subUnderpaid"></span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="section-body">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th style="width:40%">Line Item</th>
+              <th style="text-align:right">Shop</th>
+              <th style="text-align:right">Insurer</th>
+              <th style="text-align:right">Difference</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="bodyUnderpaid"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pending -->
+    <div class="section-card pending" id="secPending">
+      <div class="section-head" onclick="toggleSection('secPending')">
+        <div class="dot"></div>
+        <h3>Open / Pending (Acknowledged but $0 Approved)</h3>
+        <span class="count" id="countPending">0</span>
+        <span class="subtotal" id="subPending"></span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="section-body">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th style="width:55%">Line Item</th>
+              <th style="text-align:right">Shop Amount</th>
+              <th>Insurer Status</th>
+            </tr>
+          </thead>
+          <tbody id="bodyPending"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Fully Paid -->
+    <div class="section-card fully-paid" id="secFullyPaid">
+      <div class="section-head collapsed" onclick="toggleSection('secFullyPaid')">
+        <div class="dot"></div>
+        <h3>Fully Paid / Matched</h3>
+        <span class="count" id="countFullyPaid">0</span>
+        <span class="subtotal" id="subFullyPaid"></span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="section-body collapsed">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th style="width:70%">Line Item</th>
+              <th style="text-align:right">Amount</th>
+            </tr>
+          </thead>
+          <tbody id="bodyFullyPaid"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Flags -->
+    <div class="section-card flags-card" id="secFlags">
+      <div class="section-head" onclick="toggleSection('secFlags')">
+        <div class="dot"></div>
+        <h3>Notable Flags &amp; Supplement Points</h3>
+        <span class="count" id="countFlags">0</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="section-body">
+        <table class="results-table">
+          <tbody id="bodyFlags"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /results -->
+
+</main>
+
+<script>
+  // ── PDF.js worker ──
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  // ── File state ──
+  const fileState = { 1: null, 2: null };
+
+  // ── Drop zone setup ──
+  [1, 2].forEach(n => {
+    const drop  = document.getElementById('drop' + n);
+    const input = document.getElementById('file' + n);
+
+    drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('dragover'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault(); drop.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) handleFile(n, e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', () => {
+      if (input.files[0]) handleFile(n, input.files[0]);
+    });
+  });
+
+  function handleFile(n, file) {
+    fileState[n] = file;
+    document.getElementById('fi' + n + '-name').textContent = file.name;
+    document.getElementById('fi' + n).classList.add('visible');
+    document.getElementById('text' + n).placeholder =
+      'File loaded: ' + file.name + ' — paste text here too if needed';
+  }
+
+  function clearFile(n) {
+    fileState[n] = null;
+    document.getElementById('fi' + n).classList.remove('visible');
+    document.getElementById('file' + n).value = '';
+    document.getElementById('text' + n).placeholder =
+      n === 1 ? 'Paste CCC One export, PDF text, or email summary here…'
+               : 'Paste insurer payout sheet, SCA summary, or email text here…';
+  }
+
+  function clearAll() {
+    [1, 2].forEach(n => { clearFile(n); document.getElementById('text' + n).value = ''; });
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('errorBox').classList.remove('visible');
+  }
+
+  // ── Extract text from file ──
+  async function extractText(n) {
+    const file = fileState[n];
+    const pasted = document.getElementById('text' + n).value.trim();
+
+    if (!file) return pasted ? { type: 'text', content: pasted } : null;
+
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    // Plain text
+    if (ext === 'txt') {
+      const text = await file.text();
+      return { type: 'text', content: text + (pasted ? '\n\n' + pasted : '') };
+    }
+
+    // PDF — extract with PDF.js
+    if (ext === 'pdf') {
+      try {
+        const buf = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        let full = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page  = await pdf.getPage(i);
+          const tc    = await page.getTextContent();
+          const lines = tc.items.map(it => it.str).join(' ');
+          full += lines + '\n';
+        }
+        if (!full.trim()) throw new Error('No selectable text found in PDF');
+        return { type: 'text', content: full + (pasted ? '\n\n' + pasted : '') };
+      } catch (e) {
+        throw new Error('Could not extract text from PDF: ' + e.message +
+          '. Please paste the text manually.');
+      }
+    }
+
+    // Image
+    if (['jpg','jpeg','png','gif','webp'].includes(ext)) {
+      const b64 = await toBase64(file);
+      return {
+        type: 'image',
+        content: b64,
+        mediaType: file.type || 'image/jpeg',
+        extra: pasted
+      };
+    }
+
+    throw new Error('Unsupported file type: .' + ext);
+  }
+
+  function toBase64(file) {
+    return new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload  = () => res(reader.result.split(',')[1]);
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ── Run comparison ──
+  async function runComparison() {
+    const btn = document.getElementById('btnCompare');
+    const spinner = document.getElementById('spinner');
+    const errBox  = document.getElementById('errorBox');
+
+    errBox.classList.remove('visible');
+    document.getElementById('results').classList.remove('visible');
+
+    let e1, e2;
+    try {
+      [e1, e2] = await Promise.all([extractText(1), extractText(2)]);
+    } catch (err) {
+      showError(err.message);
+      return;
+    }
+
+    if (!e1 || (!e1.content && e1.type === 'text')) { showError('Please upload or paste the Shop estimate (Estimate 1).'); return; }
+    if (!e2 || (!e2.content && e2.type === 'text')) { showError('Please upload or paste the Insurer estimate (Estimate 2).'); return; }
+
+    btn.disabled = true;
+    spinner.classList.add('visible');
+
+    try {
+      const res = await fetch('/.netlify/functions/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estimate1: e1, estimate2: e2 })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Server error ' + res.status);
+
+      renderResults(data);
+
+    } catch (err) {
+      showError('Comparison failed: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      spinner.classList.remove('visible');
+    }
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.textContent = '⚠ ' + msg;
+    box.classList.add('visible');
+  }
+
+  // ── Render results ──
+  function fmt(n) {
+    if (n == null || isNaN(n)) return '—';
+    return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function renderResults(d) {
+    const ci = d.claim_info || {};
+
+    // Claim header
+    document.getElementById('claimVehicle').textContent = ci.vehicle || 'Vehicle Unknown';
+    document.getElementById('claimShop').textContent    =
+      [(ci.shop_name || ''), (ci.insurer_name || '')].filter(Boolean).join(' vs. ') || 'Estimate Comparison';
+
+    const meta = document.getElementById('claimMeta');
+    meta.innerHTML = '';
+    const chips = [
+      ['Insured',    ci.insured_name],
+      ['Claim #',    ci.claim_number],
+      ['Date of Loss', ci.date_of_loss],
+    ];
+    chips.forEach(([label, val]) => {
+      if (!val) return;
+      meta.innerHTML += `<div class="claim-chip">
+        <span class="label">${label}</span>
+        <span class="value">${val}</span>
+      </div>`;
+    });
+
+    // Summary
+    document.getElementById('shopTotal').textContent    = fmt(d.shop_total);
+    document.getElementById('insurerTotal').textContent = fmt(d.insurer_total);
+    document.getElementById('gapTotal').textContent     = fmt(d.gap);
+
+    // ── Not Paid ──
+    const np = d.not_paid || [];
+    const npTotal = np.reduce((s, r) => s + (r.shop_amount || 0), 0);
+    document.getElementById('countNotPaid').textContent = np.length;
+    document.getElementById('subNotPaid').textContent   = np.length ? fmt(npTotal) : '';
+    document.getElementById('bodyNotPaid').innerHTML = np.map(r => `
+      <tr>
+        <td><div class="desc">${esc(r.description)}</div></td>
+        <td class="money red">${fmt(r.shop_amount)}</td>
+        <td><div class="notes">${esc(r.notes || '')}</div></td>
+      </tr>`).join('') || '<tr><td colspan="3" style="padding:14px 16px;color:#8c959f">None identified</td></tr>';
+
+    // ── Underpaid ──
+    const up = d.underpaid || [];
+    const upTotal = up.reduce((s, r) => s + (r.difference || 0), 0);
+    document.getElementById('countUnderpaid').textContent = up.length;
+    document.getElementById('subUnderpaid').textContent   = up.length ? fmt(upTotal) : '';
+    document.getElementById('bodyUnderpaid').innerHTML = up.map(r => `
+      <tr>
+        <td><div class="desc">${esc(r.description)}</div></td>
+        <td class="money">${fmt(r.shop_amount)}</td>
+        <td class="money">${fmt(r.insurer_amount)}</td>
+        <td class="money orange">${fmt(r.difference)}</td>
+        <td><div class="notes">${esc(r.notes || '')}</div></td>
+      </tr>`).join('') || '<tr><td colspan="5" style="padding:14px 16px;color:#8c959f">None identified</td></tr>';
+
+    // ── Pending ──
+    const pnd = d.pending || [];
+    const pndTotal = pnd.reduce((s, r) => s + (r.shop_amount || 0), 0);
+    document.getElementById('countPending').textContent = pnd.length;
+    document.getElementById('subPending').textContent   = pnd.length ? fmt(pndTotal) : '';
+    document.getElementById('bodyPending').innerHTML = pnd.map(r => `
+      <tr>
+        <td><div class="desc">${esc(r.description)}</div></td>
+        <td class="money amber">${fmt(r.shop_amount)}</td>
+        <td><div class="notes">${esc(r.insurer_status || 'Open for invoice')}</div></td>
+      </tr>`).join('') || '<tr><td colspan="3" style="padding:14px 16px;color:#8c959f">None identified</td></tr>';
+
+    // ── Fully Paid ──
+    const fp = d.fully_paid || [];
+    const fpTotal = fp.reduce((s, r) => s + (r.amount || 0), 0);
+    document.getElementById('countFullyPaid').textContent = fp.length;
+    document.getElementById('subFullyPaid').textContent   = fp.length ? fmt(fpTotal) : '';
+    document.getElementById('bodyFullyPaid').innerHTML = fp.map(r => `
+      <tr>
+        <td><div class="desc">${esc(r.description)}</div></td>
+        <td class="money green">${fmt(r.amount)}</td>
+      </tr>`).join('') || '<tr><td colspan="2" style="padding:14px 16px;color:#8c959f">None identified</td></tr>';
+
+    // ── Flags ──
+    const fl = d.flags || [];
+    document.getElementById('countFlags').textContent = fl.length;
+    document.getElementById('bodyFlags').innerHTML = fl.map(r => `
+      <tr class="flag-row">
+        <td>
+          <div class="flag-issue">⚑ ${esc(r.issue)}</div>
+          <div class="flag-detail">${esc(r.detail)}</div>
+        </td>
+      </tr>`).join('') || '<tr><td style="padding:14px 20px;color:#8c959f">No flags identified</td></tr>';
+
+    document.getElementById('results').classList.add('visible');
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function esc(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
+  function toggleSection(id) {
+    const card = document.getElementById(id);
+    const head = card.querySelector('.section-head');
+    const body = card.querySelector('.section-body');
+    head.classList.toggle('collapsed');
+    body.classList.toggle('collapsed');
+  }
+</script>
+</body>
+</html>
