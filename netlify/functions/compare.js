@@ -5,6 +5,12 @@ const https = require('https');
 
 const SYSTEM_PROMPT = `You are an expert collision repair estimate analyst. Your job is to compare two estimates — one from a repair shop and one from an insurance company — and identify every discrepancy.
 
+// The API key lives in Netlify's environment variables, never in your code.
+
+const https = require('https');
+
+const SYSTEM_PROMPT = `You are an expert collision repair estimate analyst. Your job is to compare two estimates — one from a repair shop and one from an insurance company — and identify every discrepancy.
+
 You will return ONLY a valid JSON object. No prose, no markdown fences, just the raw JSON.
 
 The JSON structure must be exactly:
@@ -77,7 +83,6 @@ exports.handler = async (event) => {
   } catch {
     return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'Invalid JSON body' }) };
   }
-
   const { estimate1, estimate2 } = body;
   if (!estimate1 || !estimate2) {
     return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'Both estimate1 and estimate2 are required' }) };
@@ -112,10 +117,16 @@ exports.handler = async (event) => {
     try {
       result = JSON.parse(cleaned);
     } catch {
-      // Try to extract a JSON object from the response
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error('AI returned non-JSON response: ' + text.slice(0, 200));
-      result = JSON.parse(match[0]);
+      // Repair common AI JSON malformations (unescaped newlines/tabs inside strings)
+      const repaired = repairJson(cleaned);
+      try {
+        result = JSON.parse(repaired);
+      } catch {
+        // Last resort: extract outermost JSON object and try again
+        const match = repaired.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error('AI returned non-JSON response: ' + text.slice(0, 200));
+        result = JSON.parse(match[0]);
+      }
     }
 
     return {
@@ -151,8 +162,7 @@ function addEstimate(content, est) {
     }
   } else {
     content.push({ type: 'text', text: est.content || '' });
-  }
-}
+  }}
 
 function corsHeaders() {
   return {
@@ -160,6 +170,26 @@ function corsHeaders() {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS'
   };
+}
+
+// Fixes unescaped control characters inside JSON string values (common Haiku quirk)
+function repairJson(str) {
+  let inString = false;
+  let escaped  = false;
+  let result   = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (escaped) { result += ch; escaped = false; continue; }
+    if (ch === '\\' && inString) { result += ch; escaped = true; continue; }
+    if (ch === '"') { inString = !inString; result += ch; continue; }
+    if (inString) {
+      if (ch === '\n') { result += '\\n'; continue; }
+      if (ch === '\r') { result += '\\r'; continue; }
+      if (ch === '\t') { result += '\\t'; continue; }
+    }
+    result += ch;
+  }
+  return result;
 }
 
 function callAnthropic(apiKey, payload) {
