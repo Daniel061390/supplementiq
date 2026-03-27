@@ -46,7 +46,13 @@ Definitions:
 - gap = shop_total - insurer_total
 - All monetary values must be numbers, not strings
 - Extract claim_info from the text of the estimates; use null if not found
-- Be thorough — missing one underpaid item costs real money`;
+- Be thorough — missing one underpaid item costs real money
+
+OUTPUT SIZE RULES (critical — follow exactly):
+- notes fields: maximum 10 words each, no full sentences
+- fully_paid array: include at most 5 items (the 5 highest-dollar matched items); omit the rest
+- flags array: include at most 5 flags
+- detail fields in flags: maximum 12 words each`;
 
 exports.handler = async (event) => {
   // CORS preflight
@@ -71,12 +77,12 @@ exports.handler = async (event) => {
     };
   }
 
-  let body;
-  try {
+  let body;  try {
     body = JSON.parse(event.body);
   } catch {
     return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'Invalid JSON body' }) };
   }
+
   const { estimate1, estimate2 } = body;
   if (!estimate1 || !estimate2) {
     return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'Both estimate1 and estimate2 are required' }) };
