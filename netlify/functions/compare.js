@@ -5,12 +5,6 @@ const https = require('https');
 
 const SYSTEM_PROMPT = `You are an expert collision repair estimate analyst. Your job is to compare two estimates — one from a repair shop and one from an insurance company — and identify every discrepancy.
 
-// The API key lives in Netlify's environment variables, never in your code.
-
-const https = require('https');
-
-const SYSTEM_PROMPT = `You are an expert collision repair estimate analyst. Your job is to compare two estimates — one from a repair shop and one from an insurance company — and identify every discrepancy.
-
 You will return ONLY a valid JSON object. No prose, no markdown fences, just the raw JSON.
 
 The JSON structure must be exactly:
@@ -162,7 +156,8 @@ function addEstimate(content, est) {
     }
   } else {
     content.push({ type: 'text', text: est.content || '' });
-  }}
+  }
+}
 
 function corsHeaders() {
   return {
