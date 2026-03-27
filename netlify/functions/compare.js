@@ -1,7 +1,11 @@
 // Netlify serverless function — proxies requests to the Anthropic API
 // The API key lives in Netlify's environment variables, never in your code.
-
 const https = require('https');
+
+// Truncate large text inputs to keep within Netlify's function timeout.
+// 15 000 chars ≈ 3 750 tokens per estimate, leaving plenty of room for the
+// 4 096-token JSON output without hitting the platform time limit.
+const MAX_TEXT_CHARS = 15000;
 
 const SYSTEM_PROMPT = `You are an expert collision repair estimate analyst. Your job is to compare two estimates — one from a repair shop and one from an insurance company — and identify every discrepancy.
 
@@ -51,11 +55,7 @@ Definitions:
 exports.handler = async (event) => {
   // CORS preflight
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders(),
-      body: ''
-    };
+    return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: corsHeaders(), body: 'Method Not Allowed' };
@@ -79,18 +79,19 @@ exports.handler = async (event) => {
 
   const { estimate1, estimate2 } = body;
   if (!estimate1 || !estimate2) {
-    return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ error: 'Both estimate1 and estimate2 are required' }) };
+    return {
+      statusCode: 400,
+      headers: corsHeaders(),
+      body: JSON.stringify({ error: 'Both estimate1 and estimate2 are required' })
+    };
   }
 
   // Build message content — handles both text and image inputs
   const content = [];
-
   content.push({ type: 'text', text: '=== ESTIMATE 1: Shop / Repair Facility ===\n' });
   addEstimate(content, estimate1);
-
   content.push({ type: 'text', text: '\n\n=== ESTIMATE 2: Insurance / Payout ===\n' });
   addEstimate(content, estimate2);
-
   content.push({ type: 'text', text: '\n\nNow analyze these two estimates and return the JSON object as instructed.' });
 
   const payload = {
@@ -129,7 +130,6 @@ exports.handler = async (event) => {
       headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(result)
     };
-
   } catch (err) {
     console.error('Comparison error:', err);
     return {
@@ -146,17 +146,18 @@ function addEstimate(content, est) {
   if (est.type === 'image') {
     content.push({
       type: 'image',
-      source: {
-        type: 'base64',
-        media_type: est.mediaType || 'image/jpeg',
-        data: est.content
-      }
+      source: { type: 'base64', media_type: est.mediaType || 'image/jpeg', data: est.content }
     });
     if (est.extra) {
       content.push({ type: 'text', text: '\nAdditional notes: ' + est.extra });
     }
   } else {
-    content.push({ type: 'text', text: est.content || '' });
+    let text = est.content || '';
+    if (text.length > MAX_TEXT_CHARS) {
+      console.warn('Estimate truncated from', text.length, 'to', MAX_TEXT_CHARS, 'chars');
+      text = text.slice(0, MAX_TEXT_CHARS) + '\n\n[Note: document truncated at ' + MAX_TEXT_CHARS + ' characters to fit within processing limits]';
+    }
+    content.push({ type: 'text', text });
   }
 }
 
@@ -202,7 +203,6 @@ function callAnthropic(apiKey, payload) {
         'anthropic-version': '2023-06-01'
       }
     };
-
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
@@ -219,7 +219,6 @@ function callAnthropic(apiKey, payload) {
         }
       });
     });
-
     req.on('error', reject);
     req.setTimeout(120000, () => { req.destroy(); reject(new Error('Request timed out after 120s')); });
     req.write(body);
